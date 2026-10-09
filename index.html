@@ -255,8 +255,7 @@
     css.textContent = `#demoBanner{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:2147483000;display:flex;align-items:center;gap:10px;
       padding:8px 14px;border-radius:999px;background:#0f172a;color:#fff;font:600 13px/1.2 system-ui,-apple-system,Segoe UI,sans-serif;box-shadow:0 10px 30px rgba(15,23,42,.35);white-space:nowrap}
       #demoBanner strong{color:#93c5fd}#demoBanner select{margin-left:6px;border-radius:8px;border:0;padding:4px 6px;font:inherit;color:#0f172a;background:#fff}
-      @media (max-width:520px){#demoBanner .demo-note{display:none}#demoBanner{bottom:10px}}
-      #toast-container{bottom:72px!important}`;
+      @media (max-width:520px){#demoBanner .demo-note{display:none}#demoBanner{bottom:10px}}`;
     document.head.appendChild(css);
     document.body.appendChild(bar);
     bar.querySelector('#demoRole').addEventListener('change', e => {
@@ -836,7 +835,7 @@
 /* TOAST NOTIFICATIONS */
 #toast-container {
     position: fixed;
-    bottom: 20px;
+    top: 16px;
     left: 50%;
     transform: translateX(-50%);
     display: flex;
@@ -855,7 +854,7 @@
     animation: toastSlideUp 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
     pointer-events: auto;
     opacity: 0;
-    transform: translateY(20px);
+    transform: translateY(-20px);
 }
 .toast-msg.success { background: #10b981; }
 .toast-msg.error { background: #ef4444; }
@@ -1442,6 +1441,12 @@ async function initSupabase() {
         showSetupSupabasePopup();
         return false;
     }
+    if (isSecretSupabaseKey(key)) {
+        localStorage.removeItem('supabase_key');
+        showToast('A secret (service_role) key was saved. Paste the anon / publishable key instead.', 'error');
+        showSetupSupabasePopup();
+        return false;
+    }
     supaClient = supabase.createClient(url, key);
     
     let sessionResult;
@@ -1524,6 +1529,7 @@ async function initSupabase() {
     
     supaClient.auth.onAuthStateChange((event, nextSession) => {
         if (event === 'SIGNED_OUT' || !nextSession) {
+            try { localStorage.removeItem('image_url_cache'); } catch (e) {}
             window.userRole = null;
             window.currentUserId = null;
             window.location.reload();
@@ -1607,10 +1613,9 @@ function showLoginPopup(tab) {
             <div class="popup-actions" style="margin-top:10px;">
                 <button class="popup-confirm" onclick="handleAuth('login')" style="width:100%;padding:12px;font-size:15px;font-weight:700;">Sign In ➔</button>
             </div>
-            <div style="margin-top:20px;text-align:center;font-size:13px;display:flex;justify-content:space-around;gap:8px;">
-                <a href="javascript:void(0)" onclick="showLoginPopup('join')" style="color:var(--accent);text-decoration:none;font-weight:700;">Join as Staff 👥</a>
-                <span style="color:var(--text-secondary);">•</span>
-                <a href="javascript:void(0)" onclick="showLoginPopup('createCompany')" style="color:var(--accent);text-decoration:none;font-weight:700;">New Company (Admin) 🏢</a>
+            <div style="margin-top:20px;text-align:center;font-size:13px;display:flex;justify-content:center;flex-wrap:wrap;gap:8px 18px;">
+                <a href="javascript:void(0)" onclick="showLoginPopup('join')" style="color:var(--accent);text-decoration:none;font-weight:700;white-space:nowrap;">Join as Staff 👥</a>
+                <a href="javascript:void(0)" onclick="showLoginPopup('createCompany')" style="color:var(--accent);text-decoration:none;font-weight:700;white-space:nowrap;">New Company (Admin) 🏢</a>
             </div>
         `;
     } else if (currentAuthTab === 'join') {
@@ -1700,7 +1705,7 @@ function showLoginPopup(tab) {
     const html = `
         <div style="text-align:center;margin-bottom:16px;">
             <div style="width:48px;height:48px;border-radius:14px;background:linear-gradient(135deg, var(--accent) 0%, #1e40af 100%);color:white;display:inline-flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;box-shadow:0 6px 18px var(--accent-glow);">
-                ⚡
+                <svg width="28" height="28" viewBox="112 136 288 256" aria-hidden="true"><path d="M112 168c0-17.7 14.3-32 32-32h76l32 36h116c17.7 0 32 14.3 32 32v164c0 17.7-14.3 32-32 32H144c-17.7 0-32-14.3-32-32V168z" fill="#fff"/><path d="M198 296h104" stroke="#1d4ed8" stroke-width="26" stroke-linecap="round"/><path d="M276 256l42 40-42 40" fill="none" stroke="#1d4ed8" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </div>
             <h1 style="font-size:20px;font-weight:800;color:var(--text-primary);margin:8px 0 2px 0;letter-spacing:-0.5px;">FileFlow</h1>
             <h2 style="font-size:14px;font-weight:700;color:var(--accent);margin:0 0 14px 0;">${tabTitle}</h2>
@@ -2078,11 +2083,22 @@ function saveSupabaseConfig() {
     }
     const key = document.getElementById('supaKey').value.trim();
     if (!key) { showToast('Supabase Anon Key is required.', 'error'); return; }
+    if (isSecretSupabaseKey(key)) { showToast('That is a secret (service_role) key. Paste the anon / publishable key instead.', 'error'); return; }
     localStorage.setItem('supabase_url', url);
     localStorage.setItem('supabase_key', key);
     window.location.reload();
 }
 
+// True for privileged Supabase keys that must never be used in a browser.
+function isSecretSupabaseKey(key) {
+    if (/^sb_secret_/i.test(key)) return true;
+    const parts = key.split('.');
+    if (parts.length !== 3) return false;
+    try {
+        const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+        return payload && payload.role === 'service_role';
+    } catch (e) { return false; }
+}
 let supaClient = null;
 const _cache = {};
 let initStage = 'Starting';
@@ -2544,9 +2560,11 @@ async function fileToCompressed(file) {
     }
 }
 // For My Documents - NO compression, preserve original quality
+// Image types accepted by the Storage bucket (see supabase_schema.sql).
+const UPLOAD_IMAGE_TYPES = ['image/jpeg','image/png','image/webp','image/gif','image/heic','image/heif','image/bmp','image/avif'];
 async function fileToOriginal(file) {
     if (!file || !supaClient) return null;
-    if (!file.type.startsWith('image/')) throw new Error('Only image files are allowed.');
+    if (!UPLOAD_IMAGE_TYPES.includes(file.type)) throw new Error('Please choose a JPG, PNG, WebP, GIF, HEIC, BMP or AVIF image.');
     if (file.size > 25 * 1024 * 1024) throw new Error('Document image size must be 25 MB or less.');
     const folder = window.companyCode || window.currentUserId;
     try {
@@ -5594,6 +5612,17 @@ function importData(){
 }
 // Staff is exported for reference only; membership changes go through join requests.
 const IMPORTABLE_KEYS = ['filesOut','returnedFiles','overdueFiles','pendingTasks','overdueTasks','completedTasks','englishFile_folders'];
+// Restore backup rows: upsert rows this company already owns, insert the rest as new rows.
+async function restoreRows(table, rows, status, ownIds) {
+    const keep = rows.filter(r => ownIds.has(String(r.id)));
+    const fresh = rows.filter(r => !ownIds.has(String(r.id)));
+    if (keep.length) dbError(await supaClient.from(table).upsert(keep.map(r => toDbRow(table, r, status))), `Restoring ${table}`);
+    for (const r of fresh) {
+        const row = toDbRow(table, r, status);
+        delete row.id;
+        dbError(await supaClient.from(table).insert(row), `Restoring ${table}`);
+    }
+}
 // Import data from a JSON backup file.
 async function handleImportFile(e){
     const file=e.target.files[0];if(!file)return;
@@ -5613,13 +5642,42 @@ async function handleImportFile(e){
                 if (Array.isArray(rest.documents)) rest.documents = rest.documents.map(scrub).filter(Boolean);
                 return rest;
             };
+            // Ids already used by this company are restored in place; any other id
+            // (another project or company) becomes a new row so ids never clash.
+            const cached = keys => keys.flatMap(k => { try { return JSON.parse(cacheGet(k) || '[]'); } catch (e) { return []; } });
+            const own = {
+                files_out: new Set(cached(['filesOut','returnedFiles','overdueFiles']).map(r => String(r.id))),
+                tasks: new Set(cached(['pendingTasks','overdueTasks','completedTasks']).map(r => String(r.id))),
+                folders: new Set(cached(['englishFile_folders']).map(r => String(r.id))),
+                documents: new Set(cached(['englishFile_folders']).flatMap(f => f.documents || []).map(r => String(r.id)))
+            };
+            const TABLE_FOR = { filesOut:['files_out','out'], returnedFiles:['files_out','returned'], overdueFiles:['files_out','overdue'],
+                                pendingTasks:['tasks',null], overdueTasks:['tasks',null], completedTasks:['tasks',null] };
             for(const k of IMPORTABLE_KEYS){
                 const v = data[k];
                 if (!Array.isArray(v) || !v.length) continue;
                 const rows = v.map(scrub).filter(r => r && r.id !== undefined && r.id !== null);
                 if (!rows.length) continue;
-                await dbSet(k, JSON.stringify(rows));
-                imported += rows.length;
+                if (k === 'englishFile_folders') {
+                    for (const f of rows) {
+                        const row = toDbRow('folders', { ...f, category: 'englishFile' });
+                        let saved;
+                        if (own.folders.has(String(f.id))) {
+                            saved = dbError(await supaClient.from('folders').upsert(row).select('id').single(), 'Restoring folder');
+                        } else {
+                            delete row.id;
+                            saved = dbError(await supaClient.from('folders').insert(row).select('id').single(), 'Restoring folder');
+                        }
+                        const docs = (f.documents || []).filter(d => d && d.id !== undefined && d.id !== null)
+                            .map(d => ({ ...d, folder_id: saved.id, folderId: saved.id, category: 'englishFile' }));
+                        await restoreRows('documents', docs, null, own.documents);
+                        imported += 1 + docs.length;
+                    }
+                } else {
+                    const [table, status] = TABLE_FOR[k];
+                    await restoreRows(table, rows, status, own[table]);
+                    imported += rows.length;
+                }
             }
             hideLoading();
             if (imported > 0) {
